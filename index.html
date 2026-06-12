@@ -91,6 +91,9 @@ body {
   .venue-chip { font-size: 11px; }
   .name-block { font-size: 12px; }
   .day-header-cell { font-size: 12px; }
+  /* 平板時間提示稍大 */
+  .cell-time-hint { font-size: 10.5px; }
+  .cal-row.is-hour .cell-time-hint { font-size: 11.5px; }
 }
 @media (min-width: 1024px) {
   .mobile-frame { max-width: 960px; }
@@ -101,6 +104,9 @@ body {
   .cell { min-height: 40px; }
   .venue-chip { font-size: 12px; }
   .name-block { font-size: 13px; }
+  /* 桌機時間提示再大一點 */
+  .cell-time-hint { font-size: 11.5px; }
+  .cal-row.is-hour .cell-time-hint { font-size: 12.5px; }
 }
 
 /* ─── Header ─── */
@@ -137,6 +143,20 @@ body {
   box-shadow: 0 2px 6px rgba(122,193,154,.4);
 }
 .today-btn:hover { background: var(--green-deep) !important; }
+
+/* 2026-06-12：「✋ 多選」按鈕 — 取代長按拖選（避免跟 viewport scroll 衝突）
+   預設灰底、啟用時變綠 + pulse 提示 */
+.multi-btn.active {
+  background: var(--blue) !important;
+  border-color: transparent !important;
+  color: white;
+  box-shadow: 0 2px 6px rgba(159,204,204,.5);
+  animation: multiBtnPulse 2s ease-in-out infinite;
+}
+@keyframes multiBtnPulse {
+  0%, 100% { box-shadow: 0 2px 6px rgba(159,204,204,.5), 0 0 0 0 rgba(159,204,204,.6); }
+  50%      { box-shadow: 0 2px 6px rgba(159,204,204,.5), 0 0 0 8px rgba(159,204,204,0); }
+}
 
 /* ─── Stats chip ─── */
 .stats-row {
@@ -302,11 +322,17 @@ body {
   min-height: 36px; border-right: 1px solid var(--line-2);
   position: relative; cursor: pointer;
   background: white;
-  /* 2026-06-12：禁用長按複製框 / iOS callout / 文字選取
-     避免長按拖選時跳出系統「複製」「選取文字」UI */
+  /* 2026-06-12：禁用長按複製框 / iOS callout / 文字選取 */
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
+  /* 2026-06-12：手機點擊優化 — manipulation 取消 doubletap zoom 延遲；touch 反應更靈敏 */
+  touch-action: manipulation;
+  transition: background-color .12s;
+}
+/* 點擊瞬間視覺回饋（即使 render 還沒跑、教練也立刻看到點到了）*/
+.cell:active {
+  background-color: rgba(159, 204, 204, .25);
 }
 .cell:last-child { border-right: none; }
 
@@ -314,16 +340,16 @@ body {
    已預約 / 保留中 / 場館事務 cell 隱藏時間 hint，避免擠到學員/事務資訊 */
 .cell-time-hint {
   position: absolute;
-  bottom: 0; right: 2px;
-  font-size: 7.5px;
+  bottom: 1px; right: 3px;
+  font-size: 9.5px;
   color: var(--ink-3);
-  opacity: 0.35;
+  opacity: 0.5;
   pointer-events: none;
   font-family: monospace;
   line-height: 1;
   z-index: 1;
 }
-.cal-row.is-hour .cell-time-hint { opacity: 0.55; font-weight: 600; }
+.cal-row.is-hour .cell-time-hint { opacity: 0.7; font-weight: 700; font-size: 10.5px; }
 .cell.booked .cell-time-hint,
 .cell.reserved .cell-time-hint,
 .cell.venue-event .cell-time-hint { display: none; }
@@ -435,6 +461,14 @@ body {
 .cal-body.dragging .cell {
   cursor: crosshair;
 }
+/* 2026-06-12：多選模式時整個 cal-body 鎖 scroll、cell 上點即拖選
+   給整體淡藍色邊框提示「目前在多選模式」*/
+.cal-body.multi-mode {
+  touch-action: none;
+  outline: 2px solid var(--blue-dark);
+  outline-offset: 0;
+}
+.cal-body.multi-mode .cell { cursor: crosshair; }
 /* 2026-06-12：拖選起點 cell 視覺回饋 — 教練「啟動拖選」立刻可見
    實線 outline + 內陰影、跟單純 drag-preview（虛線）區隔開 */
 .cell.drag-anchor {
@@ -765,6 +799,8 @@ body {
           </svg>
         </button>
         <button class="icon-btn" onclick="openTemplates()" title="範本">📋</button>
+        <!-- 2026-06-12：「✋ 多選」按鈕取代長按拖選（避免 viewport scroll 衝突）-->
+        <button class="icon-btn multi-btn" id="multiBtn" onclick="toggleMultiSelectMode()" title="多選模式">✋</button>
         <!-- 2026-06-12：「回今天」按鈕改成綠色「今」字、視覺跟 cal-day.today 的 badge 一致 -->
         <button class="icon-btn today-btn" onclick="goToday()" title="回今天">今</button>
         <button class="icon-btn" onclick="openMenu()" title="更多">⋯</button>
@@ -782,12 +818,11 @@ body {
 
   <div class="mode-bar">
     <span class="mode-label">粒度</span>
+    <!-- 2026-06-12：移除 10 / 5 分粒度（手機點不準、實用性低；MODES 內仍保留以防舊範本資料）-->
     <div class="mode-toggle" id="modeToggle">
       <button class="active" data-mode="hour" onclick="setMode('hour', this)">整點</button>
-      <button data-mode="half" onclick="setMode('half', this)">30</button>
-      <button data-mode="quarter" onclick="setMode('quarter', this)">15</button>
-      <button data-mode="ten" onclick="setMode('ten', this)">10</button>
-      <button data-mode="five" onclick="setMode('five', this)">5</button>
+      <button data-mode="half" onclick="setMode('half', this)">30 分</button>
+      <button data-mode="quarter" onclick="setMode('quarter', this)">15 分</button>
     </div>
   </div>
 
@@ -1528,6 +1563,20 @@ function _enterDragMode(pointerType) {
   }
 }
 
+// 2026-06-12：多選模式（取代手機長按拖選，避免 viewport scroll 衝突）
+//   桌面（鼠標）：仍用「壓下 + 移動 > 8px」拖選（不依賴多選模式）
+//   觸控（手機/平板）：必須先點「✋」開啟多選模式，cell 上點即拖
+let _isMultiSelectMode = false;
+
+function toggleMultiSelectMode() {
+  _isMultiSelectMode = !_isMultiSelectMode;
+  const btn = document.getElementById('multiBtn');
+  if (btn) btn.classList.toggle('active', _isMultiSelectMode);
+  const calBody = document.getElementById('calBody');
+  if (calBody) calBody.classList.toggle('multi-mode', _isMultiSelectMode);
+  toast(_isMultiSelectMode ? '✋ 多選模式：點 cell 後滑動可一次選多格' : '✋ 多選模式關閉', 2200);
+}
+
 function _onPointerDown(e) {
   const cell = e.target.closest('.cell');
   if (!cell) return;
@@ -1535,11 +1584,15 @@ function _onPointerDown(e) {
   if (cell.classList.contains('booked') || cell.classList.contains('reserved')) return;
   if (cell.classList.contains('venue-event')
       && (cell.querySelector('.venue-chip'))) {
-    // venue 第一格 → 走 venue modal、不啟動拖選
     return;
   }
 
-  // 2026-06-12：記錄起點狀態決定拖選方向（toggle 行為）
+  // 觸控 + 非多選模式 → 不啟動拖選（走 onCellClick 單格）
+  // 觸控 + 多選模式 → 直接進拖選（不長按）
+  // 桌面 → 壓下 + 移動 > 8px 才進拖選（保留原行為）
+  if (e.pointerType === 'touch' && !_isMultiSelectMode) return;
+
+  // 記錄起點狀態決定拖選方向（toggle 行為）
   let startState = 'empty';
   if (cell.classList.contains('pending')) startState = 'pending';
   else if (cell.classList.contains('pending-delete')) startState = 'pending-delete';
@@ -1548,22 +1601,17 @@ function _onPointerDown(e) {
   _dragState = {
     startCell: cell,
     currentCell: cell,
-    mode: 'pending',  // 'pending' = 未確定；'drag' = 拖選中
+    mode: 'pending',
     pointerType: e.pointerType,
     startX: e.clientX,
     startY: e.clientY,
-    longPressTimer: null,
     startState,
   };
 
-  // 觸控 → 250ms 長按後進入拖選模式
-  if (e.pointerType === 'touch') {
-    _dragState.longPressTimer = setTimeout(() => {
-      if (_dragState && _dragState.mode === 'pending') {
-        _enterDragMode('touch');
-        _applyDragPreview(_cellRangeIndices(_dragState.startCell, _dragState.currentCell));
-      }
-    }, DRAG_LONG_PRESS_MS);
+  // 觸控多選模式 → 立刻進拖選（不等長按）
+  if (e.pointerType === 'touch' && _isMultiSelectMode) {
+    _enterDragMode('touch');
+    _applyDragPreview(_cellRangeIndices(_dragState.startCell, _dragState.currentCell));
   }
 }
 
@@ -1587,18 +1635,19 @@ function _onPointerMove(e) {
 
 function _onPointerUp(e) {
   if (!_dragState) return;
-  if (_dragState.longPressTimer) clearTimeout(_dragState.longPressTimer);
   if (_dragState.mode === 'drag') {
     document.getElementById('calBody').classList.remove('dragging');
     _commitDragSelection();
+    // 觸控多選 commit 完成後自動退出多選模式
+    if (_dragState.pointerType === 'touch' && _isMultiSelectMode) {
+      toggleMultiSelectMode();
+    }
   }
-  // mode === 'pending'（未進入拖選）→ 不在這裡處理，等 click 事件走 onCellClick
   _dragState = null;
 }
 
 function _onPointerCancel() {
   if (!_dragState) return;
-  if (_dragState.longPressTimer) clearTimeout(_dragState.longPressTimer);
   document.getElementById('calBody').classList.remove('dragging');
   _clearDragPreview();
   _dragState = null;
@@ -2254,7 +2303,7 @@ const TOUR_STEPS = [
     // 2026-06-11：新增 — 介紹右上工具列圖示功能
     target: '.header-actions',
     title: '🧰 右上工具列',
-    text: '<b style="color:#7eb1b0">ⓘ</b> 重看本教學　<b>📋</b> 儲存／套用常用排程範本　<b>⊙</b> 回到今天　<b>⋯</b> 更多選項',
+    text: '<b style="color:#7eb1b0">ⓘ</b> 重看本教學　<b>📋</b> 儲存／套用常用排程範本　<b style="color:#66888e">✋</b> 多選模式（拖選多格）　<b style="color:var(--green)">今</b> 回到今天　<b>⋯</b> 更多選項',
     placement: 'bottom',
   },
   {
@@ -2266,7 +2315,7 @@ const TOUR_STEPS = [
   {
     target: '.cal-body .cell:not(.confirmed):not(.booked):not(.reserved):not(.venue-event):not(.pending)',
     title: '🟢 點格子設定可被預約',
-    text: '點空白格 → 變藍色「待新增」；再點取消。<b>滑鼠拖曳 / 手機長按 0.2 秒後滑動</b>可一次選多格。',
+    text: '點空白格 → 變藍色「待新增」；再點取消。要選一段時間：桌機可<b>滑鼠拖曳</b>、手機點頂端 <b style="color:#66888e">✋</b> 多選按鈕後拖。',
     placement: 'right',
   },
   {
