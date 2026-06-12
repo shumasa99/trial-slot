@@ -30,7 +30,9 @@
   --shadow-md: 0 4px 12px rgba(0,0,0,.1);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html, body { overflow-x: hidden; }
+/* 2026-06-12：overflow-x:hidden 會破壞 position:sticky（瀏覽器把 body 變 scroll container 但 height = viewport，
+   sticky 無處可黏）→ 改用 overflow-x:clip（Chrome 90+/Safari 16+ 支援），sticky 仍正常運作 */
+html, body { overflow-x: clip; }
 body {
   font-family: 'Noto Sans TC', sans-serif; background: var(--bg);
   color: var(--ink); line-height: 1.5; font-size: 14px; padding-bottom: 90px;
@@ -268,7 +270,13 @@ body {
               inset -1px 0 0 rgba(122,193,154,.4);
 }
 
-.cal-body { position: relative; }
+.cal-body {
+  position: relative;
+  /* 2026-06-12：禁用整個 cal-body 的 iOS 長按 callout / 文字選取 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 
 .cal-row {
   display: grid; grid-template-columns: 42px repeat(7, 1fr);
@@ -294,6 +302,11 @@ body {
   min-height: 36px; border-right: 1px solid var(--line-2);
   position: relative; cursor: pointer;
   background: white;
+  /* 2026-06-12：禁用長按複製框 / iOS callout / 文字選取
+     避免長按拖選時跳出系統「複製」「選取文字」UI */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .cell:last-child { border-right: none; }
 
