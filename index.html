@@ -125,6 +125,15 @@ body {
   cursor: pointer; font-size: 14px;
 }
 .icon-btn:active { transform: scale(.95); }
+/* 2026-06-12：「回今天」按鈕 — 綠色背景白「今」字，跟 cal-day.today badge 視覺一致 */
+.today-btn {
+  background: var(--green) !important;
+  border-color: transparent !important;
+  color: white;
+  font-size: 13px; font-weight: 700;
+  box-shadow: 0 2px 6px rgba(122,193,154,.4);
+}
+.today-btn:hover { background: var(--green-deep) !important; }
 
 /* ─── Stats chip ─── */
 .stats-row {
@@ -392,6 +401,14 @@ body {
 }
 .cal-body.dragging .cell {
   cursor: crosshair;
+}
+/* 2026-06-12：拖選起點 cell 視覺回饋 — 教練「啟動拖選」立刻可見
+   實線 outline + 內陰影、跟單純 drag-preview（虛線）區隔開 */
+.cell.drag-anchor {
+  outline: 2.5px solid var(--blue-dark) !important;
+  outline-offset: -2.5px;
+  box-shadow: inset 0 0 0 2px rgba(159, 204, 204, .55);
+  z-index: 6;
 }
 
 /* 場館事務：橘色 outline + 條紋（不 lock）*/
@@ -715,7 +732,8 @@ body {
           </svg>
         </button>
         <button class="icon-btn" onclick="openTemplates()" title="範本">📋</button>
-        <button class="icon-btn" onclick="goToday()" title="回今天">⊙</button>
+        <!-- 2026-06-12：「回今天」按鈕改成綠色「今」字、視覺跟 cal-day.today 的 badge 一致 -->
+        <button class="icon-btn today-btn" onclick="goToday()" title="回今天">今</button>
         <button class="icon-btn" onclick="openMenu()" title="更多">⋯</button>
       </div>
     </div>
@@ -1263,11 +1281,17 @@ function onCellClick(el) {
 }
 
 // 從 pendingAdd/pendingDel 移除指定 cell（依完整起迄比對）
+// 2026-06-12：改成「範圍重疊就移除整筆」（修跨粒度點不掉的 bug）
+//   原邏輯要求完全匹配 startTime + endTime，但教練可能在整點選 14:00（pending 14:00-15:00），
+//   切 30 分後點 14:00 或 14:30 都會因為 endTime 不匹配而清不掉
+//   新邏輯：點擊範圍 [startTime, endTime) 與任一 pending [p.startTime, p.endTime) 有重疊 → 移除整筆
 function _removePending(list, day, date, startTime, duration) {
   const endTime = addMinutes(startTime, duration);
   for (let i = list.length - 1; i >= 0; i--) {
     const p = list[i];
-    if (p.day === day && p.date === date && p.startTime === startTime && p.endTime === endTime) {
+    if (p.day !== day || p.date !== date) continue;
+    // 時段區間重疊判定：startA < endB && endA > startB
+    if (startTime < p.endTime && endTime > p.startTime) {
       list.splice(i, 1);
     }
   }
@@ -1320,7 +1344,9 @@ function setMode(mode, btn) {
 //   ・單擊（未進入拖選模式）→ 仍走原本 onCellClick
 // ═══════════════════════════════════════════════════
 const DRAG_MOVE_THRESHOLD_PX = 8;
-const DRAG_LONG_PRESS_MS = 250;
+// 2026-06-12：長按時間 250 → 200ms（更靈敏）；震動 50 → 80ms（更明確）
+const DRAG_LONG_PRESS_MS = 200;
+const DRAG_VIBRATE_MS = 80;
 
 let _dragState = null;  // { startCell, currentCell, mode, pointerType, longPressTimer, startX, startY }
 
@@ -1353,6 +1379,7 @@ function _cellRangeIndices(cellA, cellB) {
 
 function _clearDragPreview() {
   document.querySelectorAll('.cell.drag-preview').forEach(el => el.classList.remove('drag-preview'));
+  document.querySelectorAll('.cell.drag-anchor').forEach(el => el.classList.remove('drag-anchor'));
 }
 
 function _applyDragPreview(rng) {
@@ -1458,9 +1485,11 @@ function _enterDragMode(pointerType) {
   if (!_dragState) return;
   _dragState.mode = 'drag';
   document.getElementById('calBody').classList.add('dragging');
-  // 觸控進入拖選模式 → 震動 50ms 回饋
+  // 2026-06-12：起點 cell 加強視覺回饋 — 教練立刻看到「我從這格開始拖了」
+  if (_dragState.startCell) _dragState.startCell.classList.add('drag-anchor');
+  // 觸控進入拖選模式 → 震動回饋
   if (pointerType === 'touch' && navigator.vibrate) {
-    try { navigator.vibrate(50); } catch (e) {}
+    try { navigator.vibrate(DRAG_VIBRATE_MS); } catch (e) {}
   }
 }
 
@@ -2202,7 +2231,7 @@ const TOUR_STEPS = [
   {
     target: '.cal-body .cell:not(.confirmed):not(.booked):not(.reserved):not(.venue-event):not(.pending)',
     title: '🟢 點格子設定可被預約',
-    text: '點空白格 → 變藍色「待新增」；再點取消。<b>滑鼠拖曳 / 手機長按後滑動</b>可一次選多格。',
+    text: '點空白格 → 變藍色「待新增」；再點取消。<b>滑鼠拖曳 / 手機長按 0.2 秒後滑動</b>可一次選多格。',
     placement: 'right',
   },
   {
