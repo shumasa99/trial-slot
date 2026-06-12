@@ -52,7 +52,8 @@ body {
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.app-loading-text { color: var(--ink-2); font-size: 13px; }
+.app-loading-text { color: var(--ink-2); font-size: 13px; font-weight: 500; }
+.app-loading-sub { color: var(--ink-3); font-size: 11.5px; margin-top: 4px; font-family: monospace; }
 
 /* toast 提示（取代 mockup 用 alert 的部分） */
 .toast-bar {
@@ -775,7 +776,8 @@ body {
 <!-- 全頁 loading 遮罩（教練資訊 + 排程資料載入時顯示）-->
 <div id="appLoading" class="app-loading">
   <div class="app-loading-spinner"></div>
-  <div class="app-loading-text">載入中…</div>
+  <div class="app-loading-text" id="appLoadingText">載入中…</div>
+  <div class="app-loading-sub" id="appLoadingSub" style="display:none"></div>
 </div>
 
 <!-- toast 提示容器 -->
@@ -909,6 +911,16 @@ body {
       <button class="btn btn-secondary" onclick="closeModal('confirmModal')">取消</button>
       <button class="btn btn-primary" id="confirmSubmitBtn" onclick="doSubmit()">✔️ 確認送出</button>
     </div>
+  </div>
+</div>
+
+<!-- 2026-06-12：送出成功 modal — 中央彈出，比 toast 更明顯 -->
+<div class="modal-bg" id="submitSuccessModal">
+  <div class="modal" style="max-width:320px;text-align:center;padding-bottom:20px">
+    <div style="font-size:48px;margin:18px 0 8px">🎉</div>
+    <div style="font-size:17px;font-weight:700;color:var(--green-deep);margin-bottom:6px">送出成功</div>
+    <div style="font-size:14px;color:var(--ink-2);margin-bottom:18px" id="submitSuccessText">已送出 0 項變更</div>
+    <button class="btn btn-primary" style="width:80%;margin:0 auto" onclick="closeModal('submitSuccessModal')">確認</button>
   </div>
 </div>
 
@@ -1764,11 +1776,26 @@ function openConfirm() {
   openModal('confirmModal');
 }
 // 2026-06-11：真實送出 — 把 pendingAdd / pendingDel 轉成 saveSlots 的 changes payload
+//   2026-06-12 強化：
+//     ・300 筆上限（防後端超過 Zeabur 30s timeout）
+//     ・全頁 loading mask + 預估秒數倒數
+//     ・成功 modal 取代 toast（教練不會漏看）
+const MAX_CHANGES_PER_SUBMIT = 300;
+const ESTIMATE_SECONDS_PER_CHANGE = 0.07;  // 約每筆 70ms（含 round-trip）
 let _isSaving = false;
+let _submitCountdownTimer = null;
+
 async function doSubmit() {
   if (_isSaving) return;
   if (pendingCount === 0) { toast('沒有待送出的變更'); return; }
   if (!currentCoachId) { toast('教練資訊未載入，請重新整理'); return; }
+
+  const totalChanges = pendingAdd.length + pendingDel.length;
+  // 300 筆上限：防後端 timeout
+  if (totalChanges > MAX_CHANGES_PER_SUBMIT) {
+    alert(`一次最多送出 ${MAX_CHANGES_PER_SUBMIT} 筆變更，目前有 ${totalChanges} 筆。\n\n請先取消部分選取再送出，或分批送出。`);
+    return;
+  }
 
   _isSaving = true;
   const submitBtn = document.getElementById('confirmSubmitBtn');
@@ -1777,6 +1804,10 @@ async function doSubmit() {
     submitBtn.disabled = true;
     submitBtn.textContent = '送出中…';
   }
+
+  // 全頁 loading mask + 預估時間倒數
+  const estSec = Math.max(2, Math.ceil(totalChanges * ESTIMATE_SECONDS_PER_CHANGE));
+  _showSubmitLoading(totalChanges, estSec);
 
   try {
     // 組 changes：先 add 再 delete（順序不影響後端）
@@ -1787,7 +1818,7 @@ async function doSubmit() {
         date: p.date,
         startTime: p.startTime,
         endTime: p.endTime,
-        endDate: p.date,            // MOTI / 體驗時段不跨日
+        endDate: p.date,
         isCrossDay: false,
         dayName: _dayName(p.day),
         startDateTime: p.date + ' ' + p.startTime,
@@ -1815,12 +1846,13 @@ async function doSubmit() {
     if (result?.success) {
       const total = changes.length;
       closeModal('confirmModal');
-      toast('🎉 已送出 ' + total + ' 項變更!');
       pendingAdd.length = 0;
       pendingDel.length = 0;
       pendingCount = 0;
+      // 顯示成功 modal（取代原 toast）
+      _showSubmitSuccessModal(total);
       // 重新載入確保資料一致
-      setTimeout(() => loadSchedule(), 800);
+      setTimeout(() => loadSchedule(), 600);
     } else {
       const detail = result?.errors ? result.errors.join('; ') : (result?.error || '寫入失敗');
       throw new Error(detail);
@@ -1834,11 +1866,50 @@ async function doSubmit() {
     }
   } finally {
     _isSaving = false;
+    _hideSubmitLoading();
     if (submitBtn) {
       submitBtn.disabled = false;
       submitBtn.textContent = _orig;
     }
   }
+}
+
+// 全頁 loading mask + 倒數秒數
+function _showSubmitLoading(totalChanges, estSec) {
+  const mask = document.getElementById('appLoading');
+  const txt = document.getElementById('appLoadingText');
+  const sub = document.getElementById('appLoadingSub');
+  if (!mask) return;
+  mask.classList.remove('hidden');
+  if (txt) txt.textContent = `送出中… (${totalChanges} 筆變更)`;
+  if (sub) {
+    sub.style.display = '';
+    let remain = estSec;
+    sub.textContent = `預估 ${remain} 秒，請稍候…`;
+    if (_submitCountdownTimer) clearInterval(_submitCountdownTimer);
+    _submitCountdownTimer = setInterval(() => {
+      remain--;
+      if (remain > 0) sub.textContent = `預估 ${remain} 秒，請稍候…`;
+      else { sub.textContent = `處理中，請耐心等候…`; clearInterval(_submitCountdownTimer); }
+    }, 1000);
+  }
+}
+
+function _hideSubmitLoading() {
+  const mask = document.getElementById('appLoading');
+  const txt = document.getElementById('appLoadingText');
+  const sub = document.getElementById('appLoadingSub');
+  if (mask) mask.classList.add('hidden');
+  if (txt) txt.textContent = '載入中…';  // 還原 loadSchedule 預設文字
+  if (sub) { sub.style.display = 'none'; sub.textContent = ''; }
+  if (_submitCountdownTimer) { clearInterval(_submitCountdownTimer); _submitCountdownTimer = null; }
+}
+
+// 送出成功彈窗（取代 toast、教練不會漏看）
+function _showSubmitSuccessModal(count) {
+  const txt = document.getElementById('submitSuccessText');
+  if (txt) txt.textContent = `已送出 ${count} 項變更`;
+  openModal('submitSuccessModal');
 }
 
 function _dayName(day) {
