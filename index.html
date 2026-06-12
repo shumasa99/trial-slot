@@ -84,7 +84,8 @@ body {
   .cal-time { font-size: 12px; }
   .cal-row.is-hour .cal-time { font-size: 13px; }
   .cal-row.is-fine .cal-time { font-size: 10px; }
-  .cell { min-height: 32px; }
+  /* 2026-06-12：跟 mobile 同步加大 cell（保持 RWD 漸進） */
+  .cell { min-height: 38px; }
   .venue-chip { font-size: 11px; }
   .name-block { font-size: 12px; }
   .day-header-cell { font-size: 12px; }
@@ -95,7 +96,7 @@ body {
   .coach-name { font-size: 17px; }
   .cal-time { font-size: 13px; }
   .cal-row.is-hour .cal-time { font-size: 14px; }
-  .cell { min-height: 36px; }
+  .cell { min-height: 40px; }
   .venue-chip { font-size: 12px; }
   .name-block { font-size: 13px; }
 }
@@ -289,11 +290,30 @@ body {
 
 /* ─── Cell ─── */
 .cell {
-  min-height: 28px; border-right: 1px solid var(--line-2);
+  /* 2026-06-12：手機 cell 加大避免點錯（28 → 36，達到 WCAG 44px 標準的中間值） */
+  min-height: 36px; border-right: 1px solid var(--line-2);
   position: relative; cursor: pointer;
   background: white;
 }
 .cell:last-child { border-right: none; }
+
+/* 2026-06-12：cell 內時間提示（右下角小字、淡色），方便滾到中段時知道是幾點
+   已預約 / 保留中 / 場館事務 cell 隱藏時間 hint，避免擠到學員/事務資訊 */
+.cell-time-hint {
+  position: absolute;
+  bottom: 0; right: 2px;
+  font-size: 7.5px;
+  color: var(--ink-3);
+  opacity: 0.35;
+  pointer-events: none;
+  font-family: monospace;
+  line-height: 1;
+  z-index: 1;
+}
+.cal-row.is-hour .cell-time-hint { opacity: 0.55; font-weight: 600; }
+.cell.booked .cell-time-hint,
+.cell.reserved .cell-time-hint,
+.cell.venue-event .cell-time-hint { display: none; }
 
 /* States */
 .cell.confirmed { background: var(--green-light); }
@@ -1220,7 +1240,9 @@ function render() {
       const clickFn = bk ? `openCellDetail('${d}', '${slot.time}', ${bk.bkIdx})` :
                       (venue && (venue.pos==='first' || venue.pos==='single')) ? `openVenueDetail(${venue.vIdx})` :
                       `onCellClick(this)`;
-      html += `<div class="cell${cls}" data-day="${d}" data-time="${slot.time}" onclick="${clickFn}">${extra}${label}</div>`;
+      // 2026-06-12：每個 cell 右下角顯示時間提示（淡色小字、不擋預約資訊）
+      const timeHint = `<span class="cell-time-hint">${slot.time}</span>`;
+      html += `<div class="cell${cls}" data-day="${d}" data-time="${slot.time}" onclick="${clickFn}">${extra}${label}${timeHint}</div>`;
     }
     html += `</div>`;
   });
